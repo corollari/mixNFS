@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 	"sync"
+	"math/rand"
 )
 
 const maxMessageSize = 1000
@@ -17,6 +18,7 @@ const serverAddr = "0.0.0.0:5006"
 
 var responses = map[int]([]byte){}
 var responsesMux sync.Mutex
+var acks = map[int](chan int){}
 
 func main(){
 	/*
@@ -92,11 +94,16 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 			return
 		}
 	}
+	operation := string(getBytearray(numbers, bytearrays, 1))
+	if operation == "ack" {
+		acks[msgId]<-1 // If this fails because acks[msgId] doesn't exist or is closed a panic will be triggered and the goroutine cleaned, no harm
+		return
+	}
 	pathname := string(getBytearray(numbers, bytearrays, 2))
 	f, err := os.OpenFile(pathname, os.O_RDWR, 0777)
 	checkError(err, "error opening file (does it exist?)")
 	defer f.Close()
-	switch string(getBytearray(numbers, bytearrays, 1)){
+	switch operation {
 	case "read":
 		offset := numbers[3]
 		length := numbers[4]
@@ -140,6 +147,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		defer watcher.Close()
 		err = watcher.Add(pathname)
 		checkError(err, "file cannot be watched")
+		sendMessage(msgId, pc, addr, []interface{}{}) // send "ok" message, subscription sucessful
 		for {
 			select {
 				case event, ok := <-watcher.Events:
@@ -153,11 +161,31 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 						f.Seek(0, 0)
 						n, err := f.Read(fileBuffer)
 						checkError(err, "read failure")
-						sendMessage(msgId, pc, addr, []interface{}{fileBuffer[:n]}) //Possibly sending less because the file might have changed since we stat'd it
+						go sendRecurrentMessage(pc, addr, []interface{}{"subscriptionupdate", fileBuffer[:n]}) //Possibly sending less because the file might have changed since we stat'd it
 					}
 				case <- end:
 					return
 			}
+		}
+	}
+}
+
+// Doesn't add an ok like other functions
+func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
+	msgId := rand.Intn(1048576) // Equal to 2**20, just a big number to make sure there are no collisions
+	acked := make(chan int)
+	acks[msgId] = acked
+	timeout := time.Tick(1 * time.Second)
+	msg = append([]interface{}{msgId}, msg...)
+	encodedMsg := encodeMsg(msg)
+	send(pc, addr, encodedMsg)
+	for {
+		select {
+		case <-acked:
+			close(acked) // Make sure that any attempts to write on it fail so no thread gets hanged up
+			return
+		case <-timeout:
+			send(pc, addr, encodedMsg)
 		}
 	}
 }

@@ -38,10 +38,6 @@ def encodeMsg(msg):
 
 cache = {}
 
-def getLocalTime(t):
-    # TODO
-    return t
-
 '''
 example messages
 [1, 'chmod', 'file', 511]
@@ -51,8 +47,11 @@ example messages
 [1, 'subscribe', 'file', 1000]
 '''
 
+def getMsgId():
+    return randint(0, 2**20)
+
 def sendMessage(msg):
-    msgId = randint(0, 2**20)
+    msgId = getMsgId()
     msg = [msgId] + msg
     encodedMsg = encodeMsg(msg)
     print("message to send", encodedMsg)
@@ -67,6 +66,9 @@ def sendMessage(msg):
         try:
             data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
             parsedMsg = parseMsg(data)
+            if parsedMsg[1] == "subscriptionupdate":
+                # This goes before any checks because it may be a message from a previous subscription which still hasn't been ack'd
+                sock.sendto(encodeMsg([parsedMsg[0], "ack"]), (SERVER_UDP_IP, SERVER_UDP_PORT))
             print("received message:", parsedMsg)
             if parsedMsg[0] != msgId:
                 continue # Older message, outdated
@@ -109,8 +111,8 @@ def main():
     sock.setblocking(0)
     while True:
         #msg = input("Input message: ")
-        msg = ['read', 'file', 0, 2]
-        #msg = [msgId, 'subscribe', 'file', 5000]
+        msg = ['read', '.', 0, 2]
+        #msg = [msgId, 'subscribe', '.', 5000]
         if msg[0] == "read":
             handleCache(msg)
             handleCache(msg)
