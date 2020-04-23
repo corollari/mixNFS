@@ -50,25 +50,28 @@ example messages
 def getMsgId():
     return randint(0, 2**20)
 
+def sendServer(encodedMsg):
+    print("sent:", encodedMsg)
+    sock.sendto(encodedMsg, (SERVER_UDP_IP, SERVER_UDP_PORT))
+
 def sendMessage(msg):
     msgId = getMsgId()
     msg = [msgId] + msg
     encodedMsg = encodeMsg(msg)
-    print("message to send", encodedMsg)
     lastSend = 0
     answered = False
     startingTime = time()
     while True:
         currentTime = time()
         if (currentTime - lastSend) > TIMEOUT_INTERVAL and not answered:
-            sock.sendto(encodedMsg, (SERVER_UDP_IP, SERVER_UDP_PORT))
+            sendServer(encodedMsg)
             lastSend = currentTime
         try:
             data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
             parsedMsg = parseMsg(data)
-            #if parsedMsg[1] == b"subscriptionupdate":
+            if parsedMsg[1] == b"subscriptionupdate":
                 # This goes before any checks because it may be a message from a previous subscription which still hasn't been ack'd
-            #    sock.sendto(encodeMsg([parsedMsg[0], "ack"]), (SERVER_UDP_IP, SERVER_UDP_PORT))
+                sendServer(encodeMsg([parsedMsg[0], "ack"]))
             print("received message:", parsedMsg)
             if parsedMsg[0] != msgId:
                 continue # Older message, outdated

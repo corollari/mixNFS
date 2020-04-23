@@ -19,6 +19,8 @@ const serverAddr = "0.0.0.0:5006"
 var responses = map[int]([]byte){}
 var responsesMux sync.Mutex
 var acks = map[int](chan int){}
+var acksMux sync.RWMutex
+var rateSendFailures = 0
 
 func main(){
 	/*
@@ -40,6 +42,17 @@ func startServer(args []string){
 	} else {
 		fmt.Println("Invocation semantics: At least once")
 	}
+	if len(args)>1 {
+		rateArg, err := strconv.Atoi(args[1])
+		rateSendFailures = rateArg
+		if err != nil {
+			panic(err)
+		}
+		if rateSendFailures > 100 || rateSendFailures < 0 {
+			panic("Failure rate should be in [0, 100]")
+		}
+	}
+	fmt.Printf("Rate of send failures set to %v%%\n", rateSendFailures)
 	pc, err := net.ListenPacket("udp", serverAddr)
 	if err != nil {
 		panic(err)
@@ -96,6 +109,8 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 	}
 	operation := string(getBytearray(numbers, bytearrays, 1))
 	if operation == "ack" {
+		acksMux.RLock()
+		defer acksMux.RUnlock()
 		acks[msgId]<-1 // If this fails because acks[msgId] doesn't exist or is closed a panic will be triggered and the goroutine cleaned, no harm
 		return
 	}
@@ -174,7 +189,9 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
 	msgId := rand.Intn(1048576) // Equal to 2**20, just a big number to make sure there are no collisions
 	acked := make(chan int)
-	acks[msgId] = acked
+	acksMux.Lock()
+	acks[msgId] = acked // Doesn't require mutexes 
+	acksMux.Unlock()
 	resendTimeout := time.Tick(1 * time.Second)
 	stopTimeout := time.After(5 * time.Second)
 	msg = append([]interface{}{msgId}, msg...)
@@ -217,8 +234,12 @@ func saveResponse(msgId int, response []byte){
 }
 
 func send(pc net.PacketConn, addr net.Addr, encodedMsg []byte){
-	pc.WriteTo(encodedMsg, addr)
-	fmt.Println("sent message:", encodedMsg)
+	if rateSendFailures < rand.Intn(100) {
+		pc.WriteTo(encodedMsg, addr)
+		fmt.Println("sent message:", encodedMsg)
+	} else {
+		fmt.Println("Failed message send:", encodedMsg)
+	}
 }
 
 func sendError(msgId int, pc net.PacketConn, addr net.Addr, err string){
