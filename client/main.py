@@ -66,7 +66,7 @@ def sendMessage(msg):
         try:
             data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
             parsedMsg = parseMsg(data)
-            if parsedMsg[1] == "subscriptionupdate":
+            if parsedMsg[1] == b"subscriptionupdate":
                 # This goes before any checks because it may be a message from a previous subscription which still hasn't been ack'd
                 sock.sendto(encodeMsg([parsedMsg[0], "ack"]), (SERVER_UDP_IP, SERVER_UDP_PORT))
             print("received message:", parsedMsg)
@@ -112,7 +112,7 @@ def main():
     while True:
         #msg = input("Input message: ")
         msg = ['read', '.', 0, 2]
-        #msg = [msgId, 'subscribe', '.', 5000]
+        msg = ['subscribe', 'file', 5000]
         if msg[0] == "read":
             handleCache(msg)
             handleCache(msg)
