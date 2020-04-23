@@ -1,5 +1,6 @@
 import socket
 import re
+import sys
 from random import randint
 from time import time
 
@@ -32,27 +33,67 @@ def encodeMsg(msg):
     for i in range(len(items)):
         if type(items[i]) == str:
             items[i] = '"' + items[i].replace('"', '\\"') + '"'
-        else:
+        elif type(items[i]) == bytes:
+            items[i] = '"' + items[i].decode("utf-8").replace('"', '\\"') + '"'
+        elif type(items[i]) == int:
             items[i] = str(items[i])
+        else:
+            print("error type", type(items[i]), "cannot be encoded")
     return ",".join(items).encode()
 
 cache = {}
 
 '''
 example messages
-[1, 'chmod', 'file', 511]
-[1, 'write', 'file', 0, "fr"]
-[1, 'append', 'file', "fr"]
-[1, 'read', 'file', 0, 2]
-[1, 'subscribe', 'file', 1000]
+['chmod', 'file', 511]
+['write', 'file', 0, "fr"]
+['append', 'file', "fr"]
+['read', 'file', 0, 2]
+['subscribe', 'file', 1000]
 '''
+
+mixnet = False
+
+mixnetNodes = [{
+    "ip":"127.0.0.1",
+    "port":5100
+    },
+    {
+    "ip":"127.0.0.1",
+    "port":5101
+    }]
+
+def buildHops(hops):
+    hops.reverse()
+    encoded = encodeMsg([hops[0]])
+    for h in hops[1:]:
+        encoded = encodeMsg([h, encoded])
+    return encoded
+
+def strIP(ip, port):
+    return ip + ":" + str(port)
+
+def sendServer(encodedMsg):
+    if mixnet:
+        firstHopIndex = randint(0, 1)
+        firstHop = mixnetNodes[firstHopIndex]
+        secondHop = mixnetNodes[(firstHopIndex+1)%2]
+        hops = buildHops([
+            strIP(firstHop["ip"], firstHop["port"]),
+            strIP(secondHop["ip"], secondHop["port"]),
+            strIP(SERVER_UDP_IP, SERVER_UDP_PORT),
+            strIP(secondHop["ip"], secondHop["port"]),
+            strIP(firstHop["ip"], firstHop["port"])
+            ])
+        encodedMsg = encodeMsg([hops, encodedMsg])
+        print("sent:", encodedMsg)
+        sock.sendto(encodedMsg, (firstHop["ip"], firstHop["port"]))
+    else:
+        print("sent:", encodedMsg)
+        sock.sendto(encodedMsg, (SERVER_UDP_IP, SERVER_UDP_PORT))
 
 def getMsgId():
     return randint(0, 2**20)
-
-def sendServer(encodedMsg):
-    print("sent:", encodedMsg)
-    sock.sendto(encodedMsg, (SERVER_UDP_IP, SERVER_UDP_PORT))
 
 def sendMessage(msg):
     msgId = getMsgId()
@@ -111,6 +152,10 @@ def handleCache(msg):
         sendMessage(msg)
 
 def main():
+    if len(sys.argv)>1 and sys.argv[1]=="mixnet":
+        global mixnet
+        mixnet = True
+        print("Mixnet mode")
     sock.setblocking(0)
     while True:
         #msg = input("Input message: ")

@@ -1,3 +1,6 @@
+github.com/corollari/distributed-homework v0.0.0-20200423091635-ecadff02682b h1:TQmH89sMSANotzZ+ktFhPEau+L9dTLEIMNwil8zdxrg=
+github.com/corollari/distributed-homework/onepiece v0.0.0-20200423091635-ecadff02682b h1:/+uYO+UMm5PmY7vMgUYbgSAvFwzrYxclfsx6rJRigh8=
+github.com/corollari/distributed-homework/onepiece v0.0.0-20200423091635-ecadff02682b/go.mod h1:AxpK3NO+Um/FtikzOfBl3bRTVMJW3ggmAdlspeihhdQ=
 github.com/fsnotify/fsnotify v1.4.9 h1:hsms1Qyu0jgnwNXIxa+/V/PDsU6CfLf6CNO8H7IWoS4=
 github.com/fsnotify/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4IgpuI1SZQ=
 golang.org/x/sys v0.0.0-20191005200804-aed5e4c7ecf9 h1:L2auWcuQIvxz9xSEqzESnV/QN/gNRXNApHi3fYwl2w0=
