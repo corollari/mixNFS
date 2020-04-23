@@ -4,12 +4,12 @@ import (
 	"net"
 	"fmt"
 	"strconv"
-	"strings"
 	"github.com/fsnotify/fsnotify"
 	"os"
 	"time"
 	"sync"
 	"math/rand"
+	"github.com/corollari/distributed-homework/server/onepiece"
 )
 
 const maxMessageSize = 1000
@@ -89,7 +89,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		}
 	}()
 
-	numbers, bytearrays := parseMsg(buffer, maxNumItems)
+	numbers, bytearrays := onepiece.ParseMsg(buffer, maxNumItems)
 	msgId := numbers[0]
 
 	defer func(){
@@ -107,14 +107,14 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 			return
 		}
 	}
-	operation := string(getBytearray(numbers, bytearrays, 1))
+	operation := string(onepiece.GetBytearray(numbers, bytearrays, 1))
 	if operation == "ack" {
 		acksMux.RLock()
 		defer acksMux.RUnlock()
 		acks[msgId]<-1 // If this fails because acks[msgId] doesn't exist or is closed a panic will be triggered and the goroutine cleaned, no harm
 		return
 	}
-	pathname := string(getBytearray(numbers, bytearrays, 2))
+	pathname := string(onepiece.GetBytearray(numbers, bytearrays, 2))
 	f, err := os.OpenFile(pathname, os.O_RDWR, 0777)
 	checkError(err, "error opening file (does it exist?)")
 	defer f.Close()
@@ -131,7 +131,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		sendMessage(msgId, pc, addr, []interface{}{fileBuffer[:n], lastWrite})
 	case "write":
 		offset := numbers[3]
-		content := getBytearray(numbers, bytearrays, 4)
+		content := onepiece.GetBytearray(numbers, bytearrays, 4)
 		_, err := f.Seek(int64(offset), 0)
 		checkError(err, "error seeking")
 		_, err = f.Write(content)
@@ -148,7 +148,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		sendMessage(msgId, pc, addr, []interface{}{})
 	case "append":
 		//non-idempotent
-		content := getBytearray(numbers, bytearrays, 3)
+		content := onepiece.GetBytearray(numbers, bytearrays, 3)
 		_, err = f.Seek(0, 2)
 		checkError(err, "error seeking")
 		_, err = f.Write(content)
@@ -195,7 +195,7 @@ func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
 	resendTimeout := time.Tick(1 * time.Second)
 	stopTimeout := time.After(5 * time.Second)
 	msg = append([]interface{}{msgId}, msg...)
-	encodedMsg := encodeMsg(msg)
+	encodedMsg := onepiece.EncodeMsg(msg)
 	send(pc, addr, encodedMsg)
 	for {
 		select {
@@ -214,10 +214,6 @@ func getLastWrite(f *os.File) int {
 	info, err := f.Stat()
 	checkError(err, "failed to stat file")
 	return int(info.ModTime().Unix())
-}
-
-func getBytearray(numbers []int, bytearrays [][]byte, index int) []byte {
-	return bytearrays[index][:numbers[index]]
 }
 
 func checkError(err error, errorMessage string) {
@@ -243,73 +239,15 @@ func send(pc net.PacketConn, addr net.Addr, encodedMsg []byte){
 }
 
 func sendError(msgId int, pc net.PacketConn, addr net.Addr, err string){
-	encodedMsg := encodeMsg([]interface{}{msgId, "error", err})
+	encodedMsg := onepiece.EncodeMsg([]interface{}{msgId, "error", err})
 	saveResponse(msgId, encodedMsg)
 	send(pc, addr, encodedMsg)
 }
 
 func sendMessage(msgId int, pc net.PacketConn, addr net.Addr, msg []interface{}){
 	msg = append([]interface{}{msgId, "ok"}, msg...)
-	encodedMsg := encodeMsg(msg)
+	encodedMsg := onepiece.EncodeMsg(msg)
 	saveResponse(msgId, encodedMsg)
 	send(pc, addr, encodedMsg)
 }
 
-// leaks numFields and len(b)
-// if there is a really realy long binary field full of '\"' there might be content leaks due to thje cache always staying hot
-func parseMsg(b []byte, numItems uint) ([]int, [][]byte) {
-	item := 0
-	inBinary := 0
-	var bool2int = map[bool]int{false: 0, true: 1}
-	precedingBackslash := 0
-	innerItem := 0
-	numbers := make([]int, numItems)
-	binaries := make([][]byte, numItems)
-	for i := range binaries {
-		binaries[i] = make([]byte, len(b))
-	}
-	// there be demons
-	for _, v := range b {
-		changeItem := bool2int[(v==',')] & (1 - inBinary)
-		numbers[item] = (changeItem * numbers[item]) + (1 - changeItem)*(inBinary*innerItem+(1-inBinary)*(numbers[item]*10+int(v)-int('0')))
-		delimiter := bool2int[(v=='"')]
-		backslashedDelimiter := delimiter & precedingBackslash
-		innerItem -= backslashedDelimiter
-		nonbackslashedDelimiter := delimiter & (1 - precedingBackslash)
-		inBinary = inBinary ^ nonbackslashedDelimiter
-		precedingBackslash = bool2int[(v=='\\')]
-		binaries[item][innerItem] = v
-		innerItem = (1-changeItem)*(innerItem+1)
-		innerItem -= nonbackslashedDelimiter & inBinary
-		item += changeItem
-	}
-	return numbers, binaries
-}
-
-func encodeBytearray(msg []byte, b []byte) []byte {
-	msg = append(msg, '"')
-	msg = append(msg, []byte(strings.ReplaceAll(string(b), "\"", "\\\""))...)
-	msg = append(msg, '"', ',')
-	return msg
-}
-
-// not branchless (leaks almost everyting)
-func encodeMsg(arr []interface{}) []byte {
-	msg := make([]byte, 0)
-	for i, v := range arr {
-		switch v.(type){
-		case string:
-			msg = encodeBytearray(msg, []byte(v.(string)))
-		case []byte:
-			msg = encodeBytearray(msg, v.([]byte))
-		case int:
-			msg = append(msg, []byte(strconv.Itoa(v.(int)))...)
-			msg = append(msg, ',')
-		default:
-			fmt.Printf("item %v has type %T", i, v)
-			panic("Messages can only encode bytearrays and ints")
-		}
-	}
-	// Assertion: none of the messages are empty
-	return msg[:len(msg)-1]
-}
