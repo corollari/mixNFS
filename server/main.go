@@ -175,7 +175,8 @@ func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
 	msgId := rand.Intn(1048576) // Equal to 2**20, just a big number to make sure there are no collisions
 	acked := make(chan int)
 	acks[msgId] = acked
-	timeout := time.Tick(1 * time.Second)
+	resendTimeout := time.Tick(1 * time.Second)
+	stopTimeout := time.After(5 * time.Second)
 	msg = append([]interface{}{msgId}, msg...)
 	encodedMsg := encodeMsg(msg)
 	send(pc, addr, encodedMsg)
@@ -184,8 +185,10 @@ func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
 		case <-acked:
 			close(acked) // Make sure that any attempts to write on it fail so no thread gets hanged up
 			return
-		case <-timeout:
+		case <-resendTimeout:
 			send(pc, addr, encodedMsg)
+		case <-stopTimeout:
+			return
 		}
 	}
 }

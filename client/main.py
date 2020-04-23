@@ -66,9 +66,9 @@ def sendMessage(msg):
         try:
             data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
             parsedMsg = parseMsg(data)
-            if parsedMsg[1] == b"subscriptionupdate":
+            #if parsedMsg[1] == b"subscriptionupdate":
                 # This goes before any checks because it may be a message from a previous subscription which still hasn't been ack'd
-                sock.sendto(encodeMsg([parsedMsg[0], "ack"]), (SERVER_UDP_IP, SERVER_UDP_PORT))
+            #    sock.sendto(encodeMsg([parsedMsg[0], "ack"]), (SERVER_UDP_IP, SERVER_UDP_PORT))
             print("received message:", parsedMsg)
             if parsedMsg[0] != msgId:
                 continue # Older message, outdated
