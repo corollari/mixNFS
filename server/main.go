@@ -9,7 +9,7 @@ import (
 	"time"
 	"sync"
 	"math/rand"
-	"github.com/corollari/distributed-homework/server/onepiece"
+	"github.com/corollari/distributed-homework/onepiece"
 )
 
 const maxMessageSize = 1000

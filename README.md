@@ -27,4 +27,8 @@ python tests.py # Run client tests
 ```
 cd server
 go run main.go # Run server
+go test # Run tests
 ```
+
+## Why is the serialization format called onepiece?
+Because it encodes messages as an unlimited list of items, the same cardinal that the list of one piece episodes has (unlimited).
