@@ -263,9 +263,9 @@ func send(pc net.PacketConn, addr net.Addr, encodedMsg []byte, mixnet bool, hops
 		} else {
 			pc.WriteTo(encodedMsg, addr)
 		}
-		fmt.Println("sent message:", encodedMsg)
+		fmt.Println("sent message:", string(encodedMsg))
 	} else {
-		fmt.Println("Failed message send:", encodedMsg)
+		fmt.Println("Failed message send:", string(encodedMsg))
 	}
 }
 

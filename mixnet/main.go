@@ -62,7 +62,7 @@ func handleRequest(buffer []byte) {
 	defer recover() // If there's a problem just ignore this message
 	// Decrypt here
 	numbers, bytearrays := onepiece.ParseMsg(buffer, 2)
-	if len(numbers)==1 && numbers[0] == 0 {
+	if numbers[0] == 0 {
 		return //It's a decoy message, drop it
 	}
 	// Both hops and msg should be padded to prevent any information leaks, but this is not implemented here
@@ -70,16 +70,16 @@ func handleRequest(buffer []byte) {
 	msg := onepiece.GetBytearray(numbers, bytearrays, 1)
 	numbers2, bytearrays2 := onepiece.ParseMsg(hops, 2)
 	nextHop := onepiece.GetBytearray(numbers2, bytearrays2, 0)
-	var nextMsg []interface{}
-	if numbers[1] == 0 {
-		nextMsg = []interface{}{msg}
+	var nextMsg []byte
+	if numbers2[1] == 0 {
+		nextMsg = msg
 	} else {
 		otherHops := onepiece.GetBytearray(numbers2, bytearrays2, 1)
-		nextMsg = append([]interface{}{otherHops}, msg)
+		nextMsg = onepiece.EncodeMsg(append([]interface{}{otherHops}, msg))
 	}
 	msgToAdd := ForwardMsg{
 		string(nextHop),
-		onepiece.EncodeMsg(nextMsg),
+		nextMsg,
 	}
 	MsgBatchMux.Lock()
 	nextMsgBatch = append(nextMsgBatch, msgToAdd)
@@ -121,7 +121,7 @@ func send(recipient string, msg []byte){
 	if err != nil {
 		return
 	}
-	fmt.Println("sent message:", msg)
+	fmt.Println("sent message:", string(msg))
 	conn.Write(msg)
 }
 

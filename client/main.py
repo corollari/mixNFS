@@ -8,7 +8,7 @@ CLIENT_UDP_IP = "127.0.0.1"
 CLIENT_UDP_PORT = 5005
 SERVER_UDP_IP = "127.0.0.1"
 SERVER_UDP_PORT = 5006
-TIMEOUT_INTERVAL = 1 # 1 sec
+TIMEOUT_INTERVAL = 10000000 # 1 sec
 
 sock = socket.socket(socket.AF_INET, # Internet
                      socket.SOCK_DGRAM) # UDP
@@ -78,12 +78,13 @@ def sendServer(encodedMsg):
         firstHopIndex = randint(0, 1)
         firstHop = mixnetNodes[firstHopIndex]
         secondHop = mixnetNodes[(firstHopIndex+1)%2]
+        # Do not include the first hop on the list as we are directly sending to it
         hops = buildHops([
-            strIP(firstHop["ip"], firstHop["port"]),
             strIP(secondHop["ip"], secondHop["port"]),
             strIP(SERVER_UDP_IP, SERVER_UDP_PORT),
             strIP(secondHop["ip"], secondHop["port"]),
-            strIP(firstHop["ip"], firstHop["port"])
+            strIP(firstHop["ip"], firstHop["port"]),
+            strIP(CLIENT_UDP_IP, CLIENT_UDP_PORT)
             ])
         encodedMsg = encodeMsg([hops, encodedMsg])
         print("sent:", encodedMsg)
@@ -171,11 +172,10 @@ def main():
         print("Mixnet mode")
     sock.setblocking(0)
     while True:
-        msg = eval(input(inputMsg))
-        # msg = ['read', '.', 0, 2]
-        # msg = ['subscribe', 'file', 5000]
+        #msg = eval(input(inputMsg))
+        msg = ['read', 'file', 0, 2]
+        #msg = ['subscribe', 'file', 5000]
         if msg[0] == "read":
-            handleCache(msg)
             handleCache(msg)
         else:
             sendMessage(msg)
