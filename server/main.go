@@ -12,15 +12,24 @@ import (
 	"github.com/corollari/distributed-homework/onepiece"
 )
 
-const maxMessageSize = 1000
-const maxNumItems = 10
-const serverAddr = "0.0.0.0:5006"
+const (
+	maxMessageSize = 1000
+	maxNumItems = 10
+	serverAddr = "0.0.0.0:5006"
+)
 
-var responses = map[int]([]byte){}
-var responsesMux sync.Mutex
-var acks = map[int](chan int){}
-var acksMux sync.RWMutex
-var rateSendFailures = 0
+var (
+	responses = map[int]([]byte){}
+	responsesMux sync.Mutex
+	acks = map[int](chan int){}
+	acksMux sync.RWMutex
+	rateSendFailures = 0
+)
+
+type Hops struct {
+	nextHop string
+	otherHops []byte
+}
 
 func main(){
 	/*
@@ -53,6 +62,11 @@ func startServer(args []string){
 		}
 	}
 	fmt.Printf("Rate of send failures set to %v%%\n", rateSendFailures)
+	mixnet := false
+	if(len(args)>2) {
+		mixnet = true
+		fmt.Println("Mixnet mode enabled")
+	}
 	pc, err := net.ListenPacket("udp", serverAddr)
 	if err != nil {
 		panic(err)
@@ -67,7 +81,7 @@ func startServer(args []string){
 		if err != nil {
 			continue
 		}
-		go answer(pc, addr, buffer[:n], filterDuplicates)
+		go answer(pc, addr, buffer[:n], filterDuplicates, mixnet)
 	}
 }
 
@@ -81,21 +95,30 @@ func checkDuplicates(msgId int) (response []byte, exists bool){
 // answer format
 // error -> "error","explanation of error"
 // success -> "ok",params.. 
-func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bool) {
+func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bool, mixnet bool) {
 	defer func(){
 		if r:=recover(); r!=nil{
-			//If this gets triggered -> error parsing, just ignore the message then
+			//If this gets triggered -> parse error, just ignore the message then
 			fmt.Println("Parsing error triggered")
 		}
 	}()
 
 	numbers, bytearrays := onepiece.ParseMsg(buffer, maxNumItems)
+	hops := Hops{}
+	if mixnet {
+		routingNumbers, routingBytearrays := onepiece.ParseMsg(onepiece.GetBytearray(numbers, bytearrays, 0), 2)
+		hops = Hops{
+			string(onepiece.GetBytearray(routingNumbers, routingBytearrays, 0)),
+			onepiece.GetBytearray(routingNumbers, routingBytearrays, 1),
+		}
+		numbers, bytearrays = onepiece.ParseMsg(onepiece.GetBytearray(numbers, bytearrays, 1), maxNumItems)
+	}
 	msgId := numbers[0]
 
 	defer func(){
 		// If an error is triggered send error msg to client
 		if errorMessage := recover(); errorMessage != nil {
-			sendError(msgId, pc, addr, errorMessage.(string))
+			sendError(msgId, pc, addr, errorMessage.(string), mixnet, hops)
 			fmt.Println("Error triggered:", errorMessage)
 		}
 	}()
@@ -103,7 +126,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		response, exists := checkDuplicates(msgId)
 		if exists {
 			fmt.Println("Received duplicate message with id:", msgId)
-			send(pc, addr, response)
+			send(pc, addr, response, mixnet, hops)
 			return
 		}
 	}
@@ -128,7 +151,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		n, err := f.Read(fileBuffer)
 		checkError(err, "error reading file")
 		lastWrite := getLastWrite(f)
-		sendMessage(msgId, pc, addr, []interface{}{fileBuffer[:n], lastWrite})
+		sendMessage(msgId, pc, addr, []interface{}{fileBuffer[:n], lastWrite}, mixnet, hops)
 	case "write":
 		offset := numbers[3]
 		content := onepiece.GetBytearray(numbers, bytearrays, 4)
@@ -136,16 +159,16 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		checkError(err, "error seeking")
 		_, err = f.Write(content)
 		checkError(err, "error writing file")
-		sendMessage(msgId, pc, addr, []interface{}{})
+		sendMessage(msgId, pc, addr, []interface{}{}, mixnet, hops)
 	case "lastWrite":
 		info, err := f.Stat()
 		checkError(err, "failed to stat file")
-		sendMessage(msgId, pc, addr, []interface{}{int(info.ModTime().Unix())})
+		sendMessage(msgId, pc, addr, []interface{}{int(info.ModTime().Unix())}, mixnet, hops)
 	case "chmod":
 		//idempotent
 		err = f.Chmod(os.FileMode(numbers[3]))
 		checkError(err, "mode cannot be changed")
-		sendMessage(msgId, pc, addr, []interface{}{})
+		sendMessage(msgId, pc, addr, []interface{}{}, mixnet, hops)
 	case "append":
 		//non-idempotent
 		content := onepiece.GetBytearray(numbers, bytearrays, 3)
@@ -153,7 +176,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		checkError(err, "error seeking")
 		_, err = f.Write(content)
 		checkError(err, "error writing file")
-		sendMessage(msgId, pc, addr, []interface{}{})
+		sendMessage(msgId, pc, addr, []interface{}{}, mixnet, hops)
 	case "subscribe":
 		duration := numbers[3]
 		end := time.After(time.Duration(duration) * time.Millisecond)
@@ -162,7 +185,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 		defer watcher.Close()
 		err = watcher.Add(pathname)
 		checkError(err, "file cannot be watched")
-		sendMessage(msgId, pc, addr, []interface{}{}) // send "ok" message, subscription sucessful
+		sendMessage(msgId, pc, addr, []interface{}{}, mixnet, hops) // send "ok" message, subscription sucessful
 		for {
 			select {
 				case event, ok := <-watcher.Events:
@@ -176,7 +199,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 						f.Seek(0, 0)
 						n, err := f.Read(fileBuffer)
 						checkError(err, "read failure")
-						go sendRecurrentMessage(pc, addr, []interface{}{"subscriptionupdate", fileBuffer[:n]}) //Possibly sending less because the file might have changed since we stat'd it
+						go sendRecurrentMessage(pc, addr, []interface{}{"subscriptionupdate", fileBuffer[:n]}, mixnet, hops) //Possibly sending less because the file might have changed since we stat'd it
 					}
 				case <- end:
 					return
@@ -186,7 +209,7 @@ func answer(pc net.PacketConn, addr net.Addr, buffer []byte, filterDuplicates bo
 }
 
 // Doesn't add an ok like other functions
-func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
+func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}, mixnet bool, hops Hops) {
 	msgId := rand.Intn(1048576) // Equal to 2**20, just a big number to make sure there are no collisions
 	acked := make(chan int)
 	acksMux.Lock()
@@ -196,14 +219,14 @@ func sendRecurrentMessage(pc net.PacketConn, addr net.Addr, msg []interface{}) {
 	stopTimeout := time.After(5 * time.Second)
 	msg = append([]interface{}{msgId}, msg...)
 	encodedMsg := onepiece.EncodeMsg(msg)
-	send(pc, addr, encodedMsg)
+	send(pc, addr, encodedMsg, mixnet, hops)
 	for {
 		select {
 		case <-acked:
 			close(acked) // Make sure that any attempts to write on it fail so no thread gets hanged up
 			return
 		case <-resendTimeout:
-			send(pc, addr, encodedMsg)
+			send(pc, addr, encodedMsg, mixnet, hops)
 		case <-stopTimeout:
 			return
 		}
@@ -229,25 +252,33 @@ func saveResponse(msgId int, response []byte){
 	return
 }
 
-func send(pc net.PacketConn, addr net.Addr, encodedMsg []byte){
+func send(pc net.PacketConn, addr net.Addr, encodedMsg []byte, mixnet bool, hops Hops){
 	if rateSendFailures < rand.Intn(100) {
-		pc.WriteTo(encodedMsg, addr)
+		if mixnet {
+			conn, err := net.Dial("udp", hops.nextHop)
+			if err != nil {
+				return
+			}
+			conn.Write(onepiece.EncodeMsg([]interface{}{hops.otherHops, encodedMsg}))
+		} else {
+			pc.WriteTo(encodedMsg, addr)
+		}
 		fmt.Println("sent message:", encodedMsg)
 	} else {
 		fmt.Println("Failed message send:", encodedMsg)
 	}
 }
 
-func sendError(msgId int, pc net.PacketConn, addr net.Addr, err string){
+func sendError(msgId int, pc net.PacketConn, addr net.Addr, err string, mixnet bool, hops Hops){
 	encodedMsg := onepiece.EncodeMsg([]interface{}{msgId, "error", err})
 	saveResponse(msgId, encodedMsg)
-	send(pc, addr, encodedMsg)
+	send(pc, addr, encodedMsg, mixnet, hops)
 }
 
-func sendMessage(msgId int, pc net.PacketConn, addr net.Addr, msg []interface{}){
+func sendMessage(msgId int, pc net.PacketConn, addr net.Addr, msg []interface{}, mixnet bool, hops Hops){
 	msg = append([]interface{}{msgId, "ok"}, msg...)
 	encodedMsg := onepiece.EncodeMsg(msg)
 	saveResponse(msgId, encodedMsg)
-	send(pc, addr, encodedMsg)
+	send(pc, addr, encodedMsg, mixnet, hops)
 }
 
