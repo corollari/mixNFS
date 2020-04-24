@@ -121,6 +121,7 @@ func send(recipient string, msg []byte){
 	if err != nil {
 		return
 	}
+	fmt.Println("sent message:", msg)
 	conn.Write(msg)
 }
 
