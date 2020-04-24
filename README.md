@@ -1,4 +1,6 @@
-# distributed-homework
+# MixNFS
+
+A simple Network File System (NFS) implementation that uses it's own custom fixed-time parseable serialization format and a mixnet for traffic anonymization
 
 ## Usage
 ### Client
