@@ -151,6 +151,19 @@ def handleCache(msg):
     else:
         sendMessage(msg)
 
+inputMsg = '''Input one of the following commands:
+- ['chmod', filename:string, newPermissions:int]
+Eg: ['chmod', 'file', 511]
+- ['write', filename:string, offset:int, data:string]
+Eg: ['write', 'file', 0, "fr"]
+- ['append', filename:string, data:string]
+Eg: ['append', 'file', "fr"]
+- ['read', filename:string, offset:int, length:int]
+Eg: ['read', 'file', 0, 2]
+- ['subscribe', filename:string, millisecondDuration:int]
+Eg: ['subscribe', 'file', 1000]
+'''
+
 def main():
     if len(sys.argv)>1 and sys.argv[1]=="mixnet":
         global mixnet
@@ -158,9 +171,9 @@ def main():
         print("Mixnet mode")
     sock.setblocking(0)
     while True:
-        #msg = input("Input message: ")
-        msg = ['read', '.', 0, 2]
-        msg = ['subscribe', 'file', 5000]
+        msg = eval(input(inputMsg))
+        # msg = ['read', '.', 0, 2]
+        # msg = ['subscribe', 'file', 5000]
         if msg[0] == "read":
             handleCache(msg)
             handleCache(msg)
