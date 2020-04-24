@@ -32,14 +32,6 @@ type Hops struct {
 }
 
 func main(){
-	/*
-	b := []byte("\"abc\\\\\"d\",156")
-	fmt.Println(parseMsg(b, 2))
-	u := make([]interface{}, 2)
-	u[0]=1
-	u[1]=b
-	fmt.Println(string(encodeMsg(u)))
-	*/
 	startServer(os.Args[1:])
 }
 

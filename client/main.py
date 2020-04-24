@@ -4,11 +4,11 @@ import sys
 from random import randint
 from time import time
 
-CLIENT_UDP_IP = "127.0.0.1"
+CLIENT_UDP_IP = "0.0.0.0"
 CLIENT_UDP_PORT = 5005
-SERVER_UDP_IP = "127.0.0.1"
+SERVER_UDP_IP = socket.gethostbyname("waifu.wiki") # use "127.0.0.1" for localhost
 SERVER_UDP_PORT = 5006
-TIMEOUT_INTERVAL = 10000000 # 1 sec
+TIMEOUT_INTERVAL = 1 # 1 sec
 
 sock = socket.socket(socket.AF_INET, # Internet
                      socket.SOCK_DGRAM) # UDP
@@ -42,15 +42,6 @@ def encodeMsg(msg):
     return ",".join(items).encode()
 
 cache = {}
-
-'''
-example messages
-['chmod', 'file', 511]
-['write', 'file', 0, "fr"]
-['append', 'file', "fr"]
-['read', 'file', 0, 2]
-['subscribe', 'file', 1000]
-'''
 
 mixnet = False
 
@@ -172,14 +163,11 @@ def main():
         print("Mixnet mode")
     sock.setblocking(0)
     while True:
-        #msg = eval(input(inputMsg))
-        msg = ['read', 'file', 0, 2]
-        #msg = ['subscribe', 'file', 5000]
+        msg = eval(input(inputMsg))
         if msg[0] == "read":
             handleCache(msg)
         else:
             sendMessage(msg)
-        break
 
 if __name__ == '__main__':
     main()
