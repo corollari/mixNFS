@@ -51,6 +51,9 @@ go run main.go 5000 # Run node (argument is port number)
 ## Why is the serialization format called onepiece?
 Because it encodes messages as an unlimited list of items, the same cardinal that the list of one piece episodes has (unlimited).
 
+## Warning
+This software is a Proof-of-concept ad has many security problems, it is not fit for any use other than educational.
+
 ## Ideas that would be cool to implement
 - Distribute server (among clients? yay) and implement eventual consistency (BASE)
 	- DHT with electric routing
